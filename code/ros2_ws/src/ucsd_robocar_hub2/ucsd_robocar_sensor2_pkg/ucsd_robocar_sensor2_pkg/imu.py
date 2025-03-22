@@ -1,97 +1,110 @@
-import time
-import serial
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Imu
+from std_msgs.msg import Float32
 import numpy as np
+import matplotlib.pyplot as plt
+import serial
+import threading
 
-# Define the port - change as needed
-SERIAL_PORT = 'ttyACM0'  # or ttyUSB0, etc.
-BAUD_RATE = 115200
+class IMUProcessingNode(Node):
+    def __init__(self):
+        super().__init__('imu_processing_node')
 
-# Threshold values for drift detection
-YAW_RATE_THRESHOLD = 0.5  # rad/s
-LATERAL_ACCEL_THRESHOLD = 0.3  # G
+        # Publishers for yaw rate and acceleration magnitude
+        self.yaw_pub = self.create_publisher(Float32, '/drift/yaw_rate', 10)
+        self.accel_pub = self.create_publisher(Float32, '/drift/accel_magnitude', 10)
 
-# Data storage
-time_values = []
-gyro_data = {"x": [], "y": [], "z": []}
-accel_data = {"x": [], "y": [], "z": []}
+        # Subscribe to IMU data
+        self.subscription = self.create_subscription(
+            Imu,
+            '/imu/data',
+            self.imu_callback,
+            10
+        )
 
-# Initialize serial connection
-def read_serial():
-    try:
-        ser = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1)
-        print(f"Connected to {SERIAL_PORT} at {BAUD_RATE} baud")
-        start_time = time.time()
-        
+        # Serial port reading thread
+        self.serial_thread = threading.Thread(target=self.read_serial_data)
+        self.serial_thread.daemon = True
+        self.serial_thread.start()
+
+        # Data buffers for plotting
+        self.yaw_data = []
+        self.accel_data = []
+        self.time_data = []
+        self.t0 = self.get_clock().now().nanoseconds / 1e9
+
+        # Start plot thread
+        self.plot_thread = threading.Thread(target=self.plot_data)
+        self.plot_thread.daemon = True
+        self.plot_thread.start()
+
+    def imu_callback(self, msg):
+        # Extract yaw rate from angular velocity.z
+        yaw_rate = msg.angular_velocity.z
+
+        # Compute acceleration magnitude
+        ax = msg.linear_acceleration.x
+        ay = msg.linear_acceleration.y
+        az = msg.linear_acceleration.z
+        accel_magnitude = (ax**2 + ay**2 + az**2)**0.5
+
+        # Time stamp
+        now = self.get_clock().now().nanoseconds / 1e9 - self.t0
+        self.time_data.append(now)
+        self.yaw_data.append(yaw_rate)
+        self.accel_data.append(accel_magnitude)
+
+        # Publish data
+        self.yaw_pub.publish(Float32(data=yaw_rate))
+        self.accel_pub.publish(Float32(data=accel_magnitude))
+
+        self.get_logger().info(f"Yaw Rate: {yaw_rate:.2f} rad/s, Accel Mag: {accel_magnitude:.2f} m/s^2")
+
+    def read_serial_data(self):
+        try:
+            ser = serial.Serial('/dev/ttyACM0', 115200, timeout=1)
+            self.get_logger().info("Serial port /dev/ttyACM0 opened.")
+            while True:
+                line = ser.readline().decode('utf-8').strip()
+                if line:
+                    self.get_logger().info(f"[SERIAL] {line}")
+        except serial.SerialException as e:
+            self.get_logger().error(f"Serial connection failed: {e}")
+
+    def plot_data(self):
+        plt.ion()
+        fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
         while True:
-            if ser.in_waiting:
-                data = ser.readline().decode('utf-8', errors='replace').strip()
-                elapsed_time = time.time() - start_time
-                print(f"{elapsed_time:.3f}, {data}")
-                
-                try:
-                    values = data.split(',')
-                    if len(values) >= 6:  # Adjust based on actual format
-                        gyro_x = float(values[0])
-                        gyro_y = float(values[1])
-                        gyro_z = float(values[2])
-                        accel_x = float(values[3])
-                        accel_y = float(values[4])
-                        accel_z = float(values[5])
+            if len(self.time_data) > 1:
+                ax1.clear()
+                ax2.clear()
 
-                        time_values.append(elapsed_time)
-                        gyro_data["x"].append(gyro_x)
-                        gyro_data["y"].append(gyro_y)
-                        gyro_data["z"].append(gyro_z)
-                        accel_data["x"].append(accel_x)
-                        accel_data["y"].append(accel_y)
-                        accel_data["z"].append(accel_z)
+                ax1.plot(self.time_data, self.yaw_data, label='Yaw Rate (rad/s)')
+                ax1.set_ylabel('Yaw Rate')
+                ax1.grid(True)
+                ax1.legend()
 
-                        if abs(gyro_z) > YAW_RATE_THRESHOLD and abs(accel_y) > LATERAL_ACCEL_THRESHOLD:
-                            print(f"{elapsed_time:.3f}, DRIFT DETECTED!")
-                except:
-                    pass
-            
-            time.sleep(0.01)
-    except serial.SerialException as e:
-        print(f"Error opening serial port: {e}")
+                ax2.plot(self.time_data, self.accel_data, label='Accel Magnitude (m/s²)', color='orange')
+                ax2.set_xlabel('Time (s)')
+                ax2.set_ylabel('Accel Magnitude')
+                ax2.grid(True)
+                ax2.legend()
+
+                plt.pause(0.1)
+
+
+def main(args=None):
+    rclpy.init(args=args)
+    node = IMUProcessingNode()
+    try:
+        rclpy.spin(node)
     except KeyboardInterrupt:
-        print("\nProgram stopped by user")
+        node.get_logger().info("Shutting down IMU Processing Node")
     finally:
-        if 'ser' in locals() and ser.is_open:
-            ser.close()
-            print("Serial port closed")
+        node.destroy_node()
+        rclpy.shutdown()
 
-# Plot data
-fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6))
 
-# Update function for animation
-def update_plot(frame):
-    ax1.clear()
-    ax2.clear()
-    
-    if time_values:
-        ax1.plot(time_values, gyro_data["x"], label="Gyro X", color="r")
-        ax1.plot(time_values, gyro_data["y"], label="Gyro Y", color="g")
-        ax1.plot(time_values, gyro_data["z"], label="Gyro Z", color="b")
-        ax1.set_title("Gyroscope Data")
-        ax1.set_xlabel("Time (s)")
-        ax1.set_ylabel("Rotation Rate (rad/s)")
-        ax1.legend()
-
-        ax2.plot(time_values, accel_data["x"], label="Accel X", color="r")
-        ax2.plot(time_values, accel_data["y"], label="Accel Y", color="g")
-        ax2.plot(time_values, accel_data["z"], label="Accel Z", color="b")
-        ax2.set_title("Acceleration Data")
-        ax2.set_xlabel("Time (s)")
-        ax2.set_ylabel("Acceleration (G)")
-        ax2.legend()
-    
-ani = animation.FuncAnimation(fig, update_plot, interval=500)
-
-if __name__ == "__main__":
-    import threading
-    thread = threading.Thread(target=read_serial, daemon=True)
-    thread.start()
-    plt.show()
+if __name__ == '__main__':
+    main()
