@@ -1,0 +1,21 @@
+calibration_node:
+  ros__parameters:
+    Hue_low : 100  # Adjust to detect blue
+    Hue_high : 130
+    Saturation_low : 100
+    Saturation_high : 255
+    Value_low : 50
+    Value_high : 255
+    number_of_lines : 4
+    error_threshold : 0.08
+    Width_min : 4
+    Width_max : 236
+    gray_lower : 14
+    inverted_filter : 0
+    kernal_size : 8
+    erosion_itterations : 1
+    dilation_itterations : 1
+    crop_width_decimal : 1.0
+    rows_to_watch_decimal : 0.77
+    rows_offset_decimal : 0.37
+    camera_centerline : 0.35
