@@ -13,11 +13,9 @@
 6. [Final Project Videos](#final-project-videos)
 7. [Software](#software)
 8. [Hardware](#hardware)
-9. [Gantt Chart](#gantt-chart)
-10. [Course Deliverables](#course-deliverables)
-11. [Project Reproduction](#project-reproduction)
-12. [Acknowledgements](#acknowledgements)
-13. [Contacts](#contacts)
+9. [Project Reproduction](#project-reproduction)
+10. [Acknowledgements](#acknowledgements)
+11. [Contacts](#contacts)
 
 ---
 
