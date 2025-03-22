@@ -101,7 +101,6 @@ Our project focused on enabling **autonomous drifting** using a robotic platform
     ```bash
     colcon build
     source install/setup.bash
-    ros2 launch lane_following.launch.py
     ```
 
 ---
